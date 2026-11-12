@@ -1,0 +1,14 @@
+import express from "express"; import {z} from "zod";
+export const app=express(); app.use(express.json());
+type Plan={id:string;priceCents:number;interval:"month"|"year"};
+type Subscription={id:string;customerId:string;planId:string;status:"active"|"cancelled";createdAt:string};
+const plans:Plan[]=[{id:"starter",priceCents:1900,interval:"month"},{id:"pro",priceCents:4900,interval:"month"}];
+const subscriptions=new Map<string,Subscription>();
+app.get("/health",(_req,res)=>res.json({ok:true}));
+app.get("/api/plans",(_req,res)=>res.json(plans));
+app.post("/api/subscriptions",(req,res)=>{const p=z.object({customerId:z.string().min(1),planId:z.string()}).safeParse(req.body);if(!p.success)return res.status(400).json({error:"Invalid subscription"});if(!plans.some(x=>x.id===p.data.planId))return res.status(404).json({error:"Plan not found"});const sub:Subscription={id:crypto.randomUUID(),...p.data,status:"active",createdAt:new Date().toISOString()};subscriptions.set(sub.id,sub);return res.status(201).json(sub)});
+app.get("/api/subscriptions/:id",(req,res)=>{const s=subscriptions.get(req.params.id);return s?res.json(s):res.status(404).json({error:"Not found"})});
+app.patch("/api/subscriptions/:id/plan",(req,res)=>{const s=subscriptions.get(req.params.id);const p=z.object({planId:z.string()}).safeParse(req.body);if(!s)return res.status(404).json({error:"Not found"});if(!p.success||!plans.some(x=>x.id===p.data.planId))return res.status(400).json({error:"Invalid plan"});if(s.status!=="active")return res.status(409).json({error:"Inactive subscription"});s.planId=p.data.planId;return res.json(s)});
+app.post("/api/subscriptions/:id/cancel",(req,res)=>{const s=subscriptions.get(req.params.id);if(!s)return res.status(404).json({error:"Not found"});s.status="cancelled";return res.json(s)});
+app.get("/api/subscriptions/:id/invoice-preview",(req,res)=>{const s=subscriptions.get(req.params.id);if(!s)return res.status(404).json({error:"Not found"});const p=plans.find(x=>x.id===s.planId)!;return res.json({subscriptionId:s.id,subtotalCents:p.priceCents,currency:"USD",totalCents:p.priceCents})});
+if(process.env.NODE_ENV!=="test")app.listen(Number(process.env.PORT)||3000);
